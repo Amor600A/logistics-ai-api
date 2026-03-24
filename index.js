@@ -36,7 +36,7 @@ app.listen(PORT, () => {
 });
 
 async function callAI(body) {
-    const result = { status: 401, data: null, msg: null };
+    const result = { code: 401, data: null, msg: null };
     try {
         const content = `请从以下文本提取单号、重量、收件人、电话：${body.text}`;
         const response = await axios.post(ZHIPU_API_URL,
@@ -59,12 +59,12 @@ async function callAI(body) {
                 // 超时设置，避免卡请求
                 timeout: 10000
             });
-        result.status = 200;
+        result.code = 200;
         result.data = response.data.choices[0].message.content;
         console.log('Success:', result);
     } catch (err) {
         result.msg = err.message;
-        result.status = err.response?.status;
+        result.code = err.response?.status;
         result.data = err.response?.data;
         console.error('Fail:', result);
     }

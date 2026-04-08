@@ -1,0 +1,21 @@
+# 忽略 node_modules（容器内重新安装）
+node_modules/
+
+# 忽略 Git 目录
+.git/
+
+# 忽略日志文件（容器内重新生成）
+logs/*.log
+
+# 忽略 Windows 冗余文件
+*.tmp
+Thumbs.db
+.DS_Store
+
+# 忽略文档
+README.md
+LICENSE
+
+# 忽略本地环境变量（生产用 docker-compose 配置）
+.env.local
+.env.development

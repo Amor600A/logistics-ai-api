@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  logistics-ai-api:
+    # 构建镜像（基于当前目录的 Dockerfile）
+    build: .
+    # 容器名称（自定义，方便管理）
+    container_name: logistics-ai-api
+    # 端口映射：宿主机端口:容器内端口（比如宿主机 8080 映射容器 3000）
+    ports:
+      - "8080:3001"
+    # 重启策略：容器意外停止时自动重启
+    restart: always
+    # 环境变量（根据你的项目需求加，比如数据库地址、密钥等）
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=xxx.xxx.xxx.xxx  # 替换成你的实际配置
+      - DB_PORT=3306
+    # 数据卷（可选，挂载项目代码到容器，方便开发时热更新；生产可注释）
+    # volumes:
+    #   - ./:/app
+
+      # AI模型URL
+      - ZHIPU_API_URL='https://open.bigmodel.cn/api/paas/v4/chat/completions'
+      - ZHIPU_API_KEY='125c2a0c1a30421eb15e82f75fb57a49.7gA3GxO8k3gvxDHA'
+      # AI模型名称
+      - AI_MODEL=glm-4
+      
+      # 后端服务端口
+      - PORT=3001
+      # 后端接口前缀
+      - API_PREFIX=/api

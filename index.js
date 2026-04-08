@@ -25,6 +25,18 @@ app.use(cors({
 }));
 app.use(express.json());
 
+app.get('/', (req, res) => {
+    res.status(200).json({
+        code: 200,
+        message: 'Logistics AI API 运行正常',
+        data: {
+            service: 'logistics-ai-api',
+            version: '1.0.0',
+            port: 3001
+        }
+    });
+});
+
 app.post(`${API_PREFIX}/extract-logistics`, async (req, res) => {
     const body = req.body;
     const result = await callAI(body);

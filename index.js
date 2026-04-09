@@ -4,6 +4,11 @@ const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
 const XLSX = require('xlsx'); // 添加xlsx库支持
+const multer = require('multer'); // 添加multer库支持文件上传
+const path = require('path');
+const fs = require('fs');
+const mammoth = require('mammoth'); // 添加docx文件解析支持
+const pdf = require('pdf-parse'); // 添加pdf文件解析支持
 
 const app = express();
 
@@ -19,12 +24,51 @@ if (!ZHIPU_API_KEY) {
     process.exit(1); // 终止程序运行
 }
 
+// 配置multer文件上传
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        // 创建临时上传目录
+        const uploadDir = path.join(__dirname, 'uploads');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
+    },
+    filename: function (req, file, cb) {
+        // 生成唯一文件名
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    }
+});
+
+// 文件过滤器
+const fileFilter = (req, file, cb) => {
+    const allowedTypes = ['.txt', '.doc', '.docx', '.pdf', '.xlsx', '.xls'];
+    const fileExt = path.extname(file.originalname).toLowerCase();
+    
+    if (allowedTypes.includes(fileExt)) {
+        cb(null, true);
+    } else {
+        cb(new Error(`不支持的文件类型: ${fileExt}，仅支持: ${allowedTypes.join(', ')}`), false);
+    }
+};
+
+// 配置multer实例
+const upload = multer({
+    storage: storage,
+    fileFilter: fileFilter,
+    limits: {
+        fileSize: 5 * 1024 * 1024, // 限制文件大小为5MB
+        files: 1 // 限制每次只能上传一个文件
+    }
+});
+
 app.use(cors({
     origin: 'http://localhost:8080', // 仅允许前端地址，更安全
-    methods: ['POST'], // 仅允许POST请求
-    allowedHeaders: ['Content-Type'] // 允许的请求头
+    methods: ['POST', 'GET'], // 允许POST和GET请求
+    allowedHeaders: ['Content-Type', 'Authorization'] // 允许的请求头
 }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // 增加JSON请求体大小限制
 
 app.get('/', (req, res) => {
     res.status(200).json({
@@ -38,10 +82,70 @@ app.get('/', (req, res) => {
     });
 });
 
+// 文本解析接口
 app.post(`${API_PREFIX}/extract-logistics`, async (req, res) => {
     const body = req.body;
     const result = await callAI(body);
     res.send(result);
+});
+
+// 文件上传解析接口
+app.post(`${API_PREFIX}/upload-extract`, upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                code: 400,
+                msg: '请选择要上传的文件'
+            });
+        }
+
+        console.log('文件上传成功:', req.file);
+        
+        // 调用AI解析文件
+        const result = await callAI({ filePath: req.file.path });
+        
+        // 清理临时文件
+        try {
+            fs.unlinkSync(req.file.path);
+            console.log('临时文件已清理:', req.file.path);
+        } catch (cleanupErr) {
+            console.warn('临时文件清理失败:', cleanupErr.message);
+        }
+        
+        res.send(result);
+        
+    } catch (error) {
+        console.error('文件上传处理错误:', error);
+        
+        // 清理临时文件（如果存在）
+        if (req.file && fs.existsSync(req.file.path)) {
+            try {
+                fs.unlinkSync(req.file.path);
+            } catch (cleanupErr) {
+                console.warn('临时文件清理失败:', cleanupErr.message);
+            }
+        }
+        
+        res.status(500).json({
+            code: 500,
+            msg: `文件处理失败: ${error.message}`
+        });
+    }
+});
+
+// 健康检查接口
+app.get(`${API_PREFIX}/health`, (req, res) => {
+    res.status(200).json({
+        code: 200,
+        message: '服务运行正常',
+        data: {
+            service: 'logistics-ai-api',
+            version: '1.0.0',
+            uploadSupport: true,
+            maxFileSize: '5MB',
+            supportedFormats: ['.txt', '.doc', '.docx', '.pdf', '.xlsx', '.xls']
+        }
+    });
 });
 
 app.listen(PORT, () => {
@@ -58,9 +162,6 @@ async function callAI(body) {
     } else if (body.filePath) {
         // 文件解析功能
         try {
-            const fs = require('fs');
-            const path = require('path');
-            
             // 检查文件扩展名
             const fileExt = path.extname(body.filePath).toLowerCase();
             
@@ -82,6 +183,23 @@ async function callAI(body) {
                 });
                 
                 content = `请从以下Excel文件内容提取单号、重量、收件人、电话：${excelContent}`;
+            } else if (fileExt === '.docx' || fileExt === '.doc') {
+                // 解析Word文档
+                const result = await mammoth.extractRawText({ path: body.filePath });
+                const docxContent = result.value; // 提取的文本内容
+                const messages = result.messages; // 解析过程中的消息
+                
+                if (messages.length > 0) {
+                    console.warn('Word文档解析警告:', messages);
+                }
+                
+                content = `请从以下Word文档内容提取单号、重量、收件人、电话：${docxContent}`;
+            } else if (fileExt === '.pdf') {
+                // 解析PDF文档
+                const dataBuffer = fs.readFileSync(body.filePath);
+                const pdfData = await pdf(dataBuffer);
+                
+                content = `请从以下PDF文档内容提取单号、重量、收件人、电话：${pdfData.text}`;
             } else {
                 // 解析文本文件
                 const fileContent = fs.readFileSync(body.filePath, 'utf8');

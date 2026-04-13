@@ -1,6 +1,6 @@
-require('dotenv').config();
-
+// 1. 导入核心依赖
 const express = require('express');
+const dotenv = require('dotenv');
 const axios = require('axios');
 const cors = require('cors');
 const XLSX = require('xlsx'); // 添加xlsx库支持
@@ -10,6 +10,9 @@ const fs = require('fs');
 const mammoth = require('mammoth'); // 添加docx文件解析支持
 const pdf = require('pdf-parse'); // 添加pdf文件解析支持
 
+// 2. 加载环境变量
+dotenv.config();
+// 3. 创建 Express 实例
 const app = express();
 
 const PORT = process.env.PORT || 3001; // 兜底值：如果没配置PORT，默认用3001
@@ -45,7 +48,7 @@ const storage = multer.diskStorage({
 const fileFilter = (req, file, cb) => {
     const allowedTypes = ['.txt', '.doc', '.docx', '.pdf', '.xlsx', '.xls'];
     const fileExt = path.extname(file.originalname).toLowerCase();
-    
+
     if (allowedTypes.includes(fileExt)) {
         cb(null, true);
     } else {
@@ -63,13 +66,15 @@ const upload = multer({
     }
 });
 
+// 跨域
 app.use(cors({
     origin: 'http://localhost:8080', // 仅允许前端地址，更安全
     methods: ['POST', 'GET'], // 允许POST和GET请求
     allowedHeaders: ['Content-Type', 'Authorization'] // 允许的请求头
 }));
-app.use(express.json({ limit: '10mb' })); // 增加JSON请求体大小限制
+app.use(express.json({ limit: '10mb' })); // 解析 JSON，增加JSON请求体大小限制
 
+// 根路径接口（解决 Cannot GET /）
 app.get('/', (req, res) => {
     res.status(200).json({
         code: 200,
@@ -100,10 +105,10 @@ app.post(`${API_PREFIX}/upload-extract`, upload.single('file'), async (req, res)
         }
 
         console.log('文件上传成功:', req.file);
-        
+
         // 调用AI解析文件
         const result = await callAI({ filePath: req.file.path });
-        
+
         // 清理临时文件
         try {
             fs.unlinkSync(req.file.path);
@@ -111,12 +116,12 @@ app.post(`${API_PREFIX}/upload-extract`, upload.single('file'), async (req, res)
         } catch (cleanupErr) {
             console.warn('临时文件清理失败:', cleanupErr.message);
         }
-        
+
         res.send(result);
-        
+
     } catch (error) {
         console.error('文件上传处理错误:', error);
-        
+
         // 清理临时文件（如果存在）
         if (req.file && fs.existsSync(req.file.path)) {
             try {
@@ -125,7 +130,7 @@ app.post(`${API_PREFIX}/upload-extract`, upload.single('file'), async (req, res)
                 console.warn('临时文件清理失败:', cleanupErr.message);
             }
         }
-        
+
         res.status(500).json({
             code: 500,
             msg: `文件处理失败: ${error.message}`
@@ -164,41 +169,41 @@ async function callAI(body) {
         try {
             // 检查文件扩展名
             const fileExt = path.extname(body.filePath).toLowerCase();
-            
+
             if (fileExt === '.xlsx' || fileExt === '.xls') {
                 // 解析Excel文件
                 const workbook = XLSX.readFile(body.filePath);
                 let excelContent = '';
-                
+
                 // 遍历所有工作表
                 workbook.SheetNames.forEach(sheetName => {
                     const worksheet = workbook.Sheets[sheetName];
                     const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-                    
+
                     excelContent += `工作表 "${sheetName}":\n`;
                     jsonData.forEach((row, rowIndex) => {
                         excelContent += `第${rowIndex + 1}行: ${JSON.stringify(row)}\n`;
                     });
                     excelContent += '\n';
                 });
-                
+
                 content = `请从以下Excel文件内容提取单号、重量、收件人、电话：${excelContent}`;
             } else if (fileExt === '.docx' || fileExt === '.doc') {
                 // 解析Word文档
                 const result = await mammoth.extractRawText({ path: body.filePath });
                 const docxContent = result.value; // 提取的文本内容
                 const messages = result.messages; // 解析过程中的消息
-                
+
                 if (messages.length > 0) {
                     console.warn('Word文档解析警告:', messages);
                 }
-                
+
                 content = `请从以下Word文档内容提取单号、重量、收件人、电话：${docxContent}`;
             } else if (fileExt === '.pdf') {
                 // 解析PDF文档
                 const dataBuffer = fs.readFileSync(body.filePath);
                 const pdfData = await pdf(dataBuffer);
-                
+
                 content = `请从以下PDF文档内容提取单号、重量、收件人、电话：${pdfData.text}`;
             } else {
                 // 解析文本文件
